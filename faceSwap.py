@@ -10,21 +10,6 @@ import dlib
 import os
 
 
-# Read points from text file
-def readPoints(path) :
-    # Create an array of points.
-    points = [];
-    
-    # Read points
-    with open(path) as file :
-        for line in file :
-            x, y = line.split()
-            points.append((int(x), int(y)))
-    
-
-    return points
-
-
 # Apply affine transform calculated using srcTri and dstTri to src and
 # output an image of size.
 def applyAffineTransform(src, srcTri, dstTri, size) :
@@ -303,11 +288,12 @@ def demoprompt():
             else:
                 dbFace[name] = img  # Dlib and OpenCV faces are not compatible color-wise, one must use BGR
                 dbPoints[name] = points
+                dbRatings[name] = 0
                 print("Face added!")
     elif operation == "2":
         print("Here is a list of faces currently in the database:")
         for face in dbFace.keys():
-            print(face)
+            print("Name:", face, "| Rating:", dbRatings[face])
             # In the future, we could include more info here about how this face has been rated (if that is added)
             # And how many times it has been used
         if len(dbFace.keys()) == 0:
@@ -323,6 +309,15 @@ def demoprompt():
         print("Resulting person has been displayed in a window!")
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+        rating = input("Was that face swap good? Enter in Y or y if it was or anything else if it wasn't.")
+        if rating == "Y" or rating == "y":
+            print("Great, glad you liked it!")
+            dbRatings[donor] += 1
+            dbRatings[base] += 1
+        else:
+            print("Oh, sorry about that!")
+            dbRatings[donor] -= 1
+            dbRatings[base] -= 1
     elif operation == "4":
         name = input("Enter in the face which will be removed from the database: ")
         if name not in dbFace.keys():
@@ -330,12 +325,13 @@ def demoprompt():
         else:
             dbFace.pop(name)
             dbPoints.pop(name)
+            dbRatings.pop(name)
             print("Face deleted!")
     elif operation == "5":
         face = input("Enter in the name of the face you would like to see: ")
         while face not in dbFace.keys():
             face = input("This face is not present in the database, please try again: ")
-        print("Here is the face you asked for")
+        print("Here is the face you asked for. It has a rating of", dbRatings[face])
         cv2.imshow("Viewing face: " + face, dbFace[face])
         cv2.waitKey(0)
         cv2.destroyAllWindows()
@@ -346,6 +342,7 @@ def demoprompt():
         newName = input("What would you like to rename " + oldName + " to? ")
         dbFace[newName] = dbFace.pop(oldName)
         dbPoints[newName] = dbPoints.pop(oldName)
+        dbRatings[newName] = dbRatings.pop(oldName)
         print(oldName + " renamed to " + newName)
     elif operation == "7":
         filepath = input("Enter in the file path of the face that will replace a face: ")
@@ -361,6 +358,7 @@ def demoprompt():
         else:
             dbFace[name] = img  # Dlib and OpenCV faces are not compatible color-wise, one must use BGR
             dbPoints[name] = points
+            dbRatings[name] = 0
             print("Face replaced!")
     elif operation == "8":
         face = input("Enter in the name of the face you would like to flip: ")
@@ -369,6 +367,7 @@ def demoprompt():
         img = cv2.flip(dbFace[face], 1)
         dbFace[face] = img
         dbPoints[face] = precalculate_face(img)
+        dbRatings[face] = 0
     else:
         print("Invalid operation...goodbye")
         exit()
@@ -384,9 +383,8 @@ if __name__ == '__main__' :
 
     # These will be replaced by a SQL database/similar
     dbFace = {}  # Stores the numpy array of the face image
-    dbPoints = {}
-    # dbHull = {}  # Stores the precalculated convex hull points
-    # dbDT = {} # Stores the Delaunay triangles
+    dbPoints = {} # Stores the precalculated facial landmarks
+    dbRatings = {} # Stores what people think of each face
 
     predictor_path = 'shape_predictor_68_face_landmarks.dat'
     detector = dlib.get_frontal_face_detector()
