@@ -8,7 +8,10 @@ import numpy as np
 import cv2
 import dlib
 import os
-import mysql.connector
+import io
+from minio import Minio
+from minio.error import S3Error
+from neo4j import GraphDatabase
 
 
 # Apply affine transform calculated using srcTri and dstTri to src and
@@ -279,7 +282,7 @@ def demoprompt():
         while not os.path.isfile(filepath):
             filepath = input("Invalid file, try again: ")
         name = input("Enter in a name for the face you just selected: ")
-        if get_face_sql(name):
+        if get_face(name):
             print("Sorry, " + name + " is already being used in the database")
         else:
             # img = cv2.imread(filepath)
@@ -289,7 +292,8 @@ def demoprompt():
                 print("No face detected in this image")
             else:
                 # dbFace[name] = img  # Dlib and OpenCV faces are not compatible color-wise, one must use BGR
-                set_face_sql(name, img)
+                # create_face(name, img)
+                create_face_path(name, filepath)
                 dbPoints[name] = points
                 # dbRatings[name] = 0
                 print("Face added!")
@@ -298,39 +302,37 @@ def demoprompt():
         print(get_face_list())
     elif operation == "3":
         donor = input("Enter in the donor face which will be transplanted to the base face: ")
-        while not get_face_sql(donor):
+        while not get_face(donor):
             donor = input("This donor face is not present in the database, please try again: ")
         base = input("Enter in the base face which will have its face overwritten by the donor face: ")
-        while not get_face_sql(base):
+        while not get_face(base):
             base = input("This base face is not present in the database, please try again: ")
-        cv2.imshow("Face Swapped", swap_face_calc(convert_image(get_face_sql(donor)), dbPoints[donor],
-                                                  convert_image(get_face_sql(base)), dbPoints[base]))
+        cv2.imshow("Face Swapped", swap_face_calc(convert_image(get_face(donor)), dbPoints[donor],
+                                                  convert_image(get_face(base)), dbPoints[base]))
         print("Resulting person has been displayed in a window!")
         cv2.waitKey(0)
         cv2.destroyAllWindows()
         rating = input("Was that face swap good? Enter in Y or y if it was or anything else if it wasn't.")
         if rating == "Y" or rating == "y":
             print("Great, glad you liked it!")
-            set_ranking_sql(donor, True)
-            set_ranking_sql(base, True)
+            set_rating(donor, base, True)
         else:
             print("Oh, sorry about that!")
-            set_ranking_sql(donor, False)
-            set_ranking_sql(base, False)
+            set_rating(donor, base, False)
     elif operation == "4":
         name = input("Enter in the face which will be removed from the database: ")
-        if not get_face_sql(name):
+        if not get_face(name):
             print("This donor face is not present in the database, so there's nothing to delete")
         else:
-            delete_face_sql(name)
+            delete_face(name)
             dbPoints.pop(name)
             print("Face deleted!")
     elif operation == "5":
         face = input("Enter in the name of the face you would like to see: ")
-        while not get_face_sql(face):
+        while not get_face(face):
             face = input("This face is not present in the database, please try again: ")
-        print("Here is the face you asked for. It has a rating of", get_ranking_sql(face))
-        cv2.imshow("Viewing face: " + face, convert_image(get_face_sql(face)))
+        print("Here is the face you asked for. It has a rating of", get_rating(face))
+        cv2.imshow("Viewing face: " + face, convert_image(get_face(face)))
         cv2.waitKey(0)
         cv2.destroyAllWindows()
     # elif operation == "6":
@@ -371,58 +373,111 @@ def demoprompt():
         exit()
 
 
-def set_face_sql(name, img):
-    if len(name) < 128:
-        query = "insert into faces (Name, Ranking, Photo) values (%s,%s,%s)"  # Seems to be no equivalent to OUTPUT in MySQL for PKs
-        values = (name, 0, img)
-        cursor.execute(query, values)
-        conn.commit()
-        cursor.fetchall()  # todo: may not need this
+class Neo4jTx:
+    @staticmethod
+    def transaction(cql):
+        with connection_neo4j.session() as client_neo4j:
+            result = client_neo4j.write_transaction(cql)
+        return result
+
+    @staticmethod
+    def transaction1(cql, name):
+        with connection_neo4j.session() as client_neo4j:
+            result = client_neo4j.write_transaction(cql, name)
+        return result
+
+    @staticmethod
+    def transaction2(cql, old_name, new_name):
+        with connection_neo4j.session() as client_neo4j:
+            result = client_neo4j.write_transaction(cql, old_name, new_name)
+        return result
+
+    @staticmethod
+    def create_face(tx, name):
+        tx.run("CREATE (n:Face {name:'" + name + "'})")
+
+    @staticmethod
+    def delete_face(tx, name):
+        tx.run("match (n:Face) where n.name='" + name + "' detach delete n")
+
+    @staticmethod
+    def rename_face(tx, old_name, new_name):
+        tx.run("match (n:Face) where n.name='" + old_name + "' set n.name='" + new_name + "'")
+
+    @staticmethod
+    def list_face(tx):
+        return tx.run("match (n:Face) return n").values()
 
 
-def get_face_sql(name):
-    cursor.execute("select Photo from faces where Name=%s", (name,))
-    result = cursor.fetchone()
-    if result is None:
-        return False
-    else:
-        return result[0]
+def create_face(name, img):
+    client_minio.put_object(buckets["faces"], name, img, len(img))
+    Neo4jTx.transaction1(create_face, name)
+
+
+def create_face_path(name, path):
+    client_minio.fput_object(buckets["faces"], name, path)
+    Neo4jTx.transaction1(Neo4jTx.create_face, name)
+
+
+def get_face(name):
+    try:
+        response = client_minio.get_object(buckets["faces"], name)
+        data = response.data
+        response.close()
+        response.release_conn()
+        return data
+    except S3Error as e:
+        if e.code == "NoSuchKey":
+            print("NoSuchKey in get_face")
+            return False
+        else:
+            raise e
+    # finally:
+    #     response.close()
+    #     response.release_conn()
+    #     return response
 
 
 def get_face_list():
-    cursor.execute("select Name, Ranking from faces")
-    return cursor.fetchall()
+    return Neo4jTx.transaction(Neo4jTx.list_face)
 
 
-def get_ranking_sql(name):
-    cursor.execute("select Ranking from faces where Name=%s",(name,))
-    return cursor.fetchone()
+# def set_points(name, points): create_face(name, points)
 
 
-def set_ranking_sql(name, liked):
+def get_points(name): return get_face(name)
+
+
+def get_rating(name):
+    pass # Todo: Neo4j goes here
+
+
+def set_rating(donor, base, liked):
+    # transaction_neo4j()
+    # match(n: Face) where
+    # n.name = "Lena"
+    # match(o: Face) where
+    # o.name = "Alex"
+    # merge(n) - [rating: SWAP_RATING
+    # {rating: -55}]
     if liked:
-        cursor.execute("update faces set Ranking=Ranking+1 where Name=%s", (name,))
+        # match (n:Face)-[rating:SWAP_RATING]->(m:Face) where n.name="Lena" and m.name="Alex" set rating.rating=rating.rating+1
+        pass # Todo: Neo4j goes here
     else:
-        cursor.execute("update faces set Ranking=Ranking-1 where Name=%s", (name,))
+        pass # Todo: Neo4j goes here
 
 
-def delete_face_sql(name):
-    cursor.execute("delete from faces where Name=%s", (name,))
+def delete_face(name):
+    client_minio.remove_object(buckets["faces"], name)
+    Neo4jTx.transaction1(Neo4jTx.delete_face, name)
 
 
-def update_name_sql(old_name, new_name):
-    query = "update faces set Name=%s where Name=%s"
-    values = (new_name, old_name)
-    cursor.execute(query, values)
-    cursor.fetchall()  # todo: may not need this
+def update_name(old_name, new_name):
+    Neo4jTx.transaction2(Neo4jTx.rename_face, old_name, new_name)
 
 
-def update_face_sql(name, img):
-    query = "update faces set Photo=? where Name=?"
-    values = (img, name)
-    cursor.execute(query, values)
-    conn.commit()
-    cursor.fetchall()  # todo: may not need this
+def update_face(name, img):
+    client_minio.put_object(buckets["faces"], name, img, -1)
 
 
 def read_image(path):
@@ -432,7 +487,7 @@ def read_image(path):
 
 def convert_image(img) -> np.ndarray:
     """
-    Convert an blob that has been stored in SQL through fd.read() and turn it into a numpy image.
+    Convert a blob read through fd.read() and turn it into a numpy image.
     :param img: An image retrieved from get_face_sql() or from the disk via .read()ing a file descriptor.
     :return: A numpy version of img.
     """
@@ -447,29 +502,30 @@ if __name__ == '__main__':
         print(sys.stderr, 'ERROR: Script needs OpenCV 3.0 or higher')
         sys.exit(1)
 
-    conn = mysql.connector.connect(host='localhost', database='mysql', user='root', password='password')
-    cursor = conn.cursor()
-    cursor.execute("create database if not exists face_swap;")
-    cursor.execute("use face_swap;")
-    cursor.execute("create table if not exists faces(Name varchar(255) not null, ID int auto_increment,"
-                   "Ranking int not null, Photo longblob not null, primary key (ID))")
-    cursor.execute("create table if not exists facial_points(points blob, Face_ID int not null,"
-                   "foreign key (Face_ID) references face_swap.faces(ID) on update cascade on delete cascade);")
-    # Blob of tuple points aren't ideal, but it works: eval(str(futureTuple)[3:-3])
-    # cursor.execute("insert into faces (Name, Photo) values(%s,%s)", ('Lena', img,))
-    # cursor.execute("insert into facial_points (points, Face_ID) values('((12,34),(56,78))',1)")
+    # Set up Neo4j for storing face names, rankings, and other metadata
+    connection_neo4j = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "password"))
+    # client_neo4j = connection_neo4j.session()
+    # We can't create more than one user database with the community version of neo4j so we'll just use the default one
 
-
-    # Start MySQL's container for this script
-    # docker run --name mysql --network host -e MYSQL_ROOT_PASSWORD=password mysql
-
-    # https://stackoverflow.com/questions/66663132/valueerror-buffer-size-must-be-a-multiple-of-element-size-when-converting-from
+    # Set up MinIO for storing face images and SSV
+    client_minio = Minio(
+        "localhost:9000",
+        access_key="AKIAIOSFODNN7EXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        secure=False
+    )
+    buckets = {"faces": "face-images", "points": "facial-points"}
+    for bucket in buckets.values():
+        found = client_minio.bucket_exists(bucket)
+        if not found:
+            client_minio.make_bucket(bucket)
+        else:
+            print("Bucket '{}' already exists".format(bucket))
 
     # These will be replaced by a SQL database/similar
-    # dbFace = {}  # Stores the numpy array of the face image
-    dbPoints = {}  # Stores the precalculated facial landmarks  # TODO: fully switch to using DB for storing facial points
-    # FIXME: we cannot store weighted relations easily in SQL, should we use Neo4j instead?
-    # dbRatings = {}  # Stores what people think of each face
+    # FIXME: fully switch to using DB for storing facial points as points db goes out of sync after app restart
+    dbPoints = {}  # Stores the precalculated facial landmarks
+    # dbRatings = {}  # Stores what people think of each face  #
 
     predictor_path = 'shape_predictor_68_face_landmarks.dat'
     detector = dlib.get_frontal_face_detector()
