@@ -4,19 +4,20 @@ The server will be able to pre-compute and store the coordinates of the facial f
 
 # List of software components
 ## Application Component
-Python microservices will be used for the application component, with OpenCV and dlib for the affine transformation and facial feature detection computations and gRPCs being used for networking during the testing phase (most likely).
+While Python and Go microservices would ideally make up our application, a monolithic application can be used to meet the requirements of the project for the sake of time.
 ## Datastore Component
-While we will start off using storage within the Python code, we will eventually move to using MongoDB or SQL to keep track of all the faces that users will upload.
+Neo4j is being used to store metadata about the faces (especially the directed edges between faces which serve to rate face swap parings) whlie MinIO is being used to hold the image blobs and facial coordinates.
 ## API Server
 Go will be used to create the API server, with NATS being used to communicate between the API server and microservices.
 ## Client
 The REST client will be made in Python, but we are open to developing a mobile/web client later if we have time.
 
 # Milestones
-> Milestone 1: (Deadline: March 25)                                           
+Note that the dates are incorrect due to the first milestone being delayed.
+> Milestone 1: (Deadline: March 25) (DONE)
 > Develop the application and external client to test the application. Any storage aspect is done locally. At this stage client is the test program. You can use any programming language depending on the application. 
 >                                                                             
-> Milestone 2: (Deadline: April 1)                                            
+> Milestone 2: (Deadline: April 1) (DONE)
 > Move the storage to a datastore (run as a container). Integrate application and storage.
 >                                                                             
 > Milestone 3: (Deadline: April 8)                                            
