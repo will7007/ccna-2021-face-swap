@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 import dlib
 import os
+import pickle
 import io
 from minio import Minio
 from minio.error import S3Error
@@ -279,57 +280,53 @@ def demoprompt():
     operation = input("Enter in an operation number [1-5]")
     if operation == "1":
         filepath = input("Enter in the file path of the face you would like to store: ")
-        while not os.path.isfile(filepath):
+        while filepath == "" or not os.path.isfile(filepath):
             filepath = input("Invalid file, try again: ")
-        name = input("Enter in a name for the face you just selected: ")
+        name = ""
+        while name == "":
+            name = input("Enter in a name for the face you just selected: ")
         if get_face(name):
             print("Sorry, " + name + " is already being used in the database")
         else:
-            # img = cv2.imread(filepath)
-            img = read_image(filepath)
-            points = precalculate_face(convert_image(img))  # todo: find a more efficient way of doing reading + storing
+            img = read_image(filepath)  # lena.jpg takes 768.16 KB as a cv2 image vs 28.67 KB as a file to store
+            points = precalculate_face(convert_image(img))
             if not points:
                 print("No face detected in this image")
             else:
-                # dbFace[name] = img  # Dlib and OpenCV faces are not compatible color-wise, one must use BGR
-                # create_face(name, img)
-                create_face_path(name, filepath)
-                dbPoints[name] = points
-                # dbRatings[name] = 0
+                create_entry(name, img, points)
                 print("Face added!")
     elif operation == "2":
         print("Here is a list of faces currently in the database:")
-        print(get_face_list())
+        print(get_entry_list())
     elif operation == "3":
         donor = input("Enter in the donor face which will be transplanted to the base face: ")
-        while not get_face(donor):
+        while donor == "" or not get_face(donor):
             donor = input("This donor face is not present in the database, please try again: ")
         base = input("Enter in the base face which will have its face overwritten by the donor face: ")
         while not get_face(base):
             base = input("This base face is not present in the database, please try again: ")
-        cv2.imshow("Face Swapped", swap_face_calc(convert_image(get_face(donor)), dbPoints[donor],
-                                                  convert_image(get_face(base)), dbPoints[base]))
+        cv2.imshow("Face Swapped", swap_face_calc(convert_image(get_face(donor)), get_points(donor),
+                                                  convert_image(get_face(base)), get_points(base)))
         print("Resulting person has been displayed in a window!")
         cv2.waitKey(0)
         cv2.destroyAllWindows()
         rating = input("Was that face swap good? Enter in Y or y if it was or anything else if it wasn't.")
         if rating == "Y" or rating == "y":
             print("Great, glad you liked it!")
-            set_rating(donor, base, True)
+            update_rating(donor, base, True)
         else:
             print("Oh, sorry about that!")
-            set_rating(donor, base, False)
+            update_rating(donor, base, False)
     elif operation == "4":
         name = input("Enter in the face which will be removed from the database: ")
-        if not get_face(name):
+        if name == "" or not get_face(name):
             print("This donor face is not present in the database, so there's nothing to delete")
         else:
-            delete_face(name)
-            dbPoints.pop(name)
+            delete_entry(name)
             print("Face deleted!")
     elif operation == "5":
         face = input("Enter in the name of the face you would like to see: ")
-        while not get_face(face):
+        while face == "" or not get_face(face):
             face = input("This face is not present in the database, please try again: ")
         print("Here is the face you asked for. It has a rating of", get_rating(face))
         cv2.imshow("Viewing face: " + face, convert_image(get_face(face)))
@@ -409,19 +406,9 @@ class Neo4jTx:
         return tx.run("match (n:Face) return n").values()
 
 
-def create_face(name, img):
-    client_minio.put_object(buckets["faces"], name, img, len(img))
-    Neo4jTx.transaction1(create_face, name)
-
-
-def create_face_path(name, path):
-    client_minio.fput_object(buckets["faces"], name, path)
-    Neo4jTx.transaction1(Neo4jTx.create_face, name)
-
-
-def get_face(name):
+def get_object(name, bucket_name):
     try:
-        response = client_minio.get_object(buckets["faces"], name)
+        response = client_minio.get_object(buckets[bucket_name], name)
         data = response.data
         response.close()
         response.release_conn()
@@ -429,30 +416,52 @@ def get_face(name):
     except S3Error as e:
         if e.code == "NoSuchKey":
             print("NoSuchKey in get_face")
-            return False
+            return False  # TODO: return None instead?
         else:
             raise e
-    # finally:
-    #     response.close()
-    #     response.release_conn()
-    #     return response
 
 
-def get_face_list():
-    return Neo4jTx.transaction(Neo4jTx.list_face)
+def set_object(name, bucket_name, object_source):
+    object_pickled = pickle.dumps(object_source)
+    client_minio.put_object(buckets[bucket_name], name, io.BytesIO(object_pickled), len(object_pickled))
 
 
-# def set_points(name, points): create_face(name, points)
+def create_entry(name, img, points):
+    update_face(name, img)
+    update_points(name, points)
+    Neo4jTx.transaction1(Neo4jTx.create_face, name)
 
 
-def get_points(name): return get_face(name)
+def create_entry_path(name, path):
+    client_minio.fput_object(buckets["faces"], name, path)
+    Neo4jTx.transaction1(Neo4jTx.create_face, name)
+
+
+def delete_entry(name):
+    for bucket in buckets.keys():
+        client_minio.remove_object(buckets[bucket], name)
+    Neo4jTx.transaction1(Neo4jTx.delete_face, name)
+
+
+def get_entry_list(): return Neo4jTx.transaction(Neo4jTx.list_face)
+
+
+def get_face(name):
+    data = get_object(name, "faces")
+    if type(data) == bool and not data:  # TODO: use the graph store instead of the object store to test if present
+        return False
+    else:
+        return pickle.loads(get_object(name, "faces"))
+
+
+def update_face(name, img): set_object(name, "faces", img)
 
 
 def get_rating(name):
     pass # Todo: Neo4j goes here
 
 
-def set_rating(donor, base, liked):
+def update_rating(donor, base, liked):
     # transaction_neo4j()
     # match(n: Face) where
     # n.name = "Lena"
@@ -467,17 +476,13 @@ def set_rating(donor, base, liked):
         pass # Todo: Neo4j goes here
 
 
-def delete_face(name):
-    client_minio.remove_object(buckets["faces"], name)
-    Neo4jTx.transaction1(Neo4jTx.delete_face, name)
+def update_name(old_name, new_name): Neo4jTx.transaction2(Neo4jTx.rename_face, old_name, new_name)
 
 
-def update_name(old_name, new_name):
-    Neo4jTx.transaction2(Neo4jTx.rename_face, old_name, new_name)
+def get_points(name): return pickle.loads(get_object(name, "points"))
 
 
-def update_face(name, img):
-    client_minio.put_object(buckets["faces"], name, img, -1)
+def update_points(name, points): set_object(name, "points", points)
 
 
 def read_image(path):
@@ -507,7 +512,7 @@ if __name__ == '__main__':
     # client_neo4j = connection_neo4j.session()
     # We can't create more than one user database with the community version of neo4j so we'll just use the default one
 
-    # Set up MinIO for storing face images and SSV
+    # Set up MinIO for storing face images and point-position tuples
     client_minio = Minio(
         "localhost:9000",
         access_key="AKIAIOSFODNN7EXAMPLE",
@@ -521,11 +526,6 @@ if __name__ == '__main__':
             client_minio.make_bucket(bucket)
         else:
             print("Bucket '{}' already exists".format(bucket))
-
-    # These will be replaced by a SQL database/similar
-    # FIXME: fully switch to using DB for storing facial points as points db goes out of sync after app restart
-    dbPoints = {}  # Stores the precalculated facial landmarks
-    # dbRatings = {}  # Stores what people think of each face  #
 
     predictor_path = 'shape_predictor_68_face_landmarks.dat'
     detector = dlib.get_frontal_face_detector()
