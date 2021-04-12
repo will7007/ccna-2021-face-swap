@@ -18,13 +18,12 @@ from neo4j import GraphDatabase
 # Apply affine transform calculated using srcTri and dstTri to src and
 # output an image of size.
 def applyAffineTransform(src, srcTri, dstTri, size):
-
     # Given a pair of triangles, find the affine transform.
-    warpMat = cv2.getAffineTransform( np.float32(srcTri), np.float32(dstTri) )
+    warpMat = cv2.getAffineTransform(np.float32(srcTri), np.float32(dstTri))
 
     # Apply the Affine Transform just found to the src image
     dst = cv2.warpAffine(src, warpMat, (size[0], size[1]), None, flags=cv2.INTER_LINEAR,
-                          borderMode=cv2.BORDER_REFLECT_101)
+                         borderMode=cv2.BORDER_REFLECT_101)
     return dst
 
 
@@ -41,14 +40,14 @@ def rectContains(rect, point):
     return True
 
 
-#calculate delanauy triangle
+# calculate delanauy triangle
 def calculateDelaunayTriangles(rect, points):
-    #create subdiv
+    # create subdiv
     subdiv = cv2.Subdiv2D(rect)
 
     # Insert points into subdiv
     for p in points:
-        subdiv.insert(p) # MUST be a 2-element tuple to not throw here
+        subdiv.insert(p)  # MUST be a 2-element tuple to not throw here
 
     triangleList = subdiv.getTriangleList()
 
@@ -67,10 +66,10 @@ def calculateDelaunayTriangles(rect, points):
 
         if rectContains(rect, pt1) and rectContains(rect, pt2) and rectContains(rect, pt3):
             ind = []
-            #Get face-points (from 68 face detector) by coordinates
+            # Get face-points (from 68 face detector) by coordinates
             for j in range(0, 3):
                 for k in range(0, len(points)):
-                    if(abs(pt[j][0] - points[k][0]) < 1.0 and abs(pt[j][1] - points[k][1]) < 1.0):
+                    if (abs(pt[j][0] - points[k][0]) < 1.0 and abs(pt[j][1] - points[k][1]) < 1.0):
                         ind.append(k)
             # Three points form a triangle. Triangle array corresponds to the file tri.txt in FaceMorph
             if len(ind) == 3:
@@ -82,8 +81,7 @@ def calculateDelaunayTriangles(rect, points):
 
 
 # Warps and alpha blends triangular regions from img1 and img2 to img
-def warpTriangle(img1, img2, t1, t2) :
-
+def warpTriangle(img1, img2, t1, t2):
     # Find bounding rectangle for each triangle
     r1 = cv2.boundingRect(np.float32([t1]))
     r2 = cv2.boundingRect(np.float32([t2]))
@@ -94,18 +92,17 @@ def warpTriangle(img1, img2, t1, t2) :
     t2RectInt = []
 
     for i in range(0, 3):
-        t1Rect.append(((t1[i][0] - r1[0]),(t1[i][1] - r1[1])))
-        t2Rect.append(((t2[i][0] - r2[0]),(t2[i][1] - r2[1])))
-        t2RectInt.append(((t2[i][0] - r2[0]),(t2[i][1] - r2[1])))
-
+        t1Rect.append(((t1[i][0] - r1[0]), (t1[i][1] - r1[1])))
+        t2Rect.append(((t2[i][0] - r2[0]), (t2[i][1] - r2[1])))
+        t2RectInt.append(((t2[i][0] - r2[0]), (t2[i][1] - r2[1])))
 
     # Get mask by filling triangle
-    mask = np.zeros((r2[3], r2[2], 3), dtype = np.float32)
+    mask = np.zeros((r2[3], r2[2], 3), dtype=np.float32)
     cv2.fillConvexPoly(mask, np.int32(t2RectInt), (1.0, 1.0, 1.0), 16, 0)
 
     # Apply warpImage to small rectangular patches
     img1Rect = img1[r1[1]:r1[1] + r1[3], r1[0]:r1[0] + r1[2]]
-    #img2Rect = np.zeros((r2[3], r2[2]), dtype = img1Rect.dtype)
+    # img2Rect = np.zeros((r2[3], r2[2]), dtype = img1Rect.dtype)
 
     size = (r2[2], r2[3])
 
@@ -114,9 +111,10 @@ def warpTriangle(img1, img2, t1, t2) :
     img2Rect = img2Rect * mask
 
     # Copy triangular region of the rectangular patch to the output image
-    img2[r2[1]:r2[1]+r2[3], r2[0]:r2[0]+r2[2]] = img2[r2[1]:r2[1]+r2[3], r2[0]:r2[0]+r2[2]] * ( (1.0, 1.0, 1.0) - mask )
+    img2[r2[1]:r2[1] + r2[3], r2[0]:r2[0] + r2[2]] = img2[r2[1]:r2[1] + r2[3], r2[0]:r2[0] + r2[2]] * (
+            (1.0, 1.0, 1.0) - mask)
 
-    img2[r2[1]:r2[1]+r2[3], r2[0]:r2[0]+r2[2]] = img2[r2[1]:r2[1]+r2[3], r2[0]:r2[0]+r2[2]] + img2Rect
+    img2[r2[1]:r2[1] + r2[3], r2[0]:r2[0] + r2[2]] = img2[r2[1]:r2[1] + r2[3], r2[0]:r2[0] + r2[2]] + img2Rect
 
 
 def swapfacefiles(filename1, filename2):
@@ -312,11 +310,9 @@ def demoprompt():
         cv2.destroyAllWindows()
         rating = input("Was that face swap good? Enter in Y or y if it was or anything else if it wasn't.")
         if rating == "Y" or rating == "y":
-            print("Great, glad you liked it!")
-            update_rating(donor, base, True)
+            print("Great, glad you liked it! This face swap is now rated", update_rating(donor, base, True))
         else:
-            print("Oh, sorry about that!")
-            update_rating(donor, base, False)
+            print("Oh, sorry about that! This face swap is now rated", update_rating(donor, base, False))
     elif operation == "4":
         name = input("Enter in the face which will be removed from the database: ")
         if name == "" or not get_face(name):
@@ -328,7 +324,7 @@ def demoprompt():
         face = input("Enter in the name of the face you would like to see: ")
         while face == "" or not get_face(face):
             face = input("This face is not present in the database, please try again: ")
-        print("Here is the face you asked for. It has a rating of", get_rating(face))
+        print("Here is the face you asked for.")  # Rating information will be included here when it's done
         cv2.imshow("Viewing face: " + face, convert_image(get_face(face)))
         cv2.waitKey(0)
         cv2.destroyAllWindows()
@@ -367,6 +363,7 @@ def demoprompt():
     #     dbRatings[face] = 0
     else:
         print("Invalid operation...goodbye")
+        # connection_neo4j.close()
         exit()
 
 
@@ -390,6 +387,12 @@ class Neo4jTx:
         return result
 
     @staticmethod
+    def transaction3(cql, old_name, new_name, value):
+        with connection_neo4j.session() as client_neo4j:
+            result = client_neo4j.write_transaction(cql, old_name, new_name, value)
+        return result
+
+    @staticmethod
     def create_face(tx, name):
         tx.run("CREATE (n:Face {name:'" + name + "'})")
 
@@ -404,6 +407,26 @@ class Neo4jTx:
     @staticmethod
     def list_face(tx):
         return tx.run("match (n:Face) return n").values()
+
+    @staticmethod
+    def rate_face(tx, donor_name, base_name, liked):
+        if liked:
+            rating = "+"
+        else:
+            rating = "-"
+        result = tx.run("match(n: Face) where n.name = '" + donor_name + "'" +
+                        " optional match(o: Face) where o.name = '" + base_name + "'" +
+                        " merge(n) - [r: Swap]->(o)" +
+                        " set r.rating = coalesce(r.rating, 0) " + rating + " 1" +
+                        " return r.rating as rating")
+        values = []
+        for record in result:
+            values.append(record.values())
+        return values[0]  # there should only be one rating returned
+
+    @staticmethod
+    def get_rating(tx, name):
+        return tx.run("match (n)-[r:Swap]->() where n.name='" + name + "' return r.rating")
 
 
 def get_object(name, bucket_name):
@@ -457,23 +480,14 @@ def get_face(name):
 def update_face(name, img): set_object(name, "faces", img)
 
 
-def get_rating(name):
-    pass # Todo: Neo4j goes here
+# TODO: make the "rating" of a face the total sum of the weights of its outward edges
+# def get_rating(name):
+#     result = Neo4jTx.transaction1(Neo4jTx.get_rating, name)
+#     value = [record["rating"] for record in result]
+#     return value[0]["rating"]
 
 
-def update_rating(donor, base, liked):
-    # transaction_neo4j()
-    # match(n: Face) where
-    # n.name = "Lena"
-    # match(o: Face) where
-    # o.name = "Alex"
-    # merge(n) - [rating: SWAP_RATING
-    # {rating: -55}]
-    if liked:
-        # match (n:Face)-[rating:SWAP_RATING]->(m:Face) where n.name="Lena" and m.name="Alex" set rating.rating=rating.rating+1
-        pass # Todo: Neo4j goes here
-    else:
-        pass # Todo: Neo4j goes here
+def update_rating(donor, base, liked): return Neo4jTx.transaction3(Neo4jTx.rate_face, donor, base, liked)
 
 
 def update_name(old_name, new_name): Neo4jTx.transaction2(Neo4jTx.rename_face, old_name, new_name)
@@ -503,10 +517,11 @@ if __name__ == '__main__':
     # Make sure OpenCV is version 3.0 or above
     (major_ver, minor_ver, subminor_ver) = cv2.__version__.split('.')
 
-    if int(major_ver) < 3 :
+    if int(major_ver) < 3:
         print(sys.stderr, 'ERROR: Script needs OpenCV 3.0 or higher')
         sys.exit(1)
 
+    # TODO: should we keep the connection open for the duration of the program/microservice or open/shut it when needed?
     # Set up Neo4j for storing face names, rankings, and other metadata
     connection_neo4j = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "password"))
     # client_neo4j = connection_neo4j.session()
