@@ -10,9 +10,12 @@ import dlib
 import os
 import pickle
 import io
+import signal
 from minio import Minio
 from minio.error import S3Error
 from neo4j import GraphDatabase
+from nats.aio.client import Client as NATS
+import asyncio
 
 
 # Apply affine transform calculated using srcTri and dstTri to src and
@@ -264,7 +267,7 @@ def swapfacenumpy(img1, img2):
     return cv2.resize(swapped, (512, 512))
 
 
-def demoprompt():
+def demo_prompt():
     print("\n\nCCNA Project Group 1: Face Swapping")
     print("List of possible operations:")
     print("1: Create face in database")
@@ -272,9 +275,9 @@ def demoprompt():
     print("3: Take a face in the database and combine it with a head in the database")
     print("4: Delete a face from the database")
     print("5: View a face from the database")
-    print("6: Rename a face from the database")
-    print("7: Change the face assigned to a name in the database")
-    print("8: Y-axis flip a face for improved results")
+    # print("6: Rename a face from the database")
+    # print("7: Change the face assigned to a name in the database")
+    # print("8: Y-axis flip a face for improved results")
     operation = input("Enter in an operation number [1-5]")
     if operation == "1":
         filepath = input("Enter in the file path of the face you would like to store: ")
@@ -367,6 +370,96 @@ def demoprompt():
         exit()
 
 
+# From nats.py/examples/service.py
+async def run(loop):
+    nc = NATS()
+
+    # Note: these callbacks must be inside an async or they will not reply properly
+    async def create_entry_nats(msg):
+        name = msg.data.decode()
+        img = get_face(name)  # lena.jpg takes 768.16 KB as a cv2 image vs 28.67 KB as a file to store
+        points = precalculate_face(convert_image(img))
+        if not points:
+            print("No face detected in this image")
+            client_minio.remove_object(buckets["faces"], name)
+            await nc.publish(msg.reply, b'No face detected')
+        else:
+            create_entry(name, img, points)
+            print(name + " added!")
+            await nc.publish(msg.reply, b'Added')
+
+    async def list_entries_nats(msg):
+        list = get_entry_list()
+        print("Printing list of faces: ", list)
+        await nc.publish(msg.reply, b'' + str(list).encode("utf-8"))
+
+    async def swap_nats(msg):
+        name_combined = msg.data.decode()
+        donor, base = name_combined.split("|")
+        if is_entry(donor) is None or is_entry(base) is None:
+            await nc.publish(msg.reply, str("").encode("utf-8"))
+        else:
+            output = swap_face_calc(convert_image(get_face(donor)), get_points(donor),
+                                    convert_image(get_face(base)), get_points(base))
+            update_face(name_combined, output)
+            await nc.publish(msg.reply, str(name_combined).encode("utf-8"))
+
+    async def delete_entries_nats(msg):
+        name = msg.data.decode()
+        if not is_entry(name):
+            print("No need to remove " + name + " because it's gone")
+            await nc.publish(msg.reply, b'Not present')
+        else:
+            delete_entry(name)
+            await nc.publish(msg.reply, b'Deleted')
+
+    async def view_entries_nats(msg):
+        subject = msg.subject
+        reply = msg.reply
+        data = msg.data.decode()
+        print("Received a message on '{subject} {reply}': {data}".format(
+            subject=subject, reply=reply, data=data))
+        await nc.publish(reply, b'I can\'t view things because I need to be finished first')
+
+    async def closed_cb():
+        print("Connection to NATS is closed.")
+        await asyncio.sleep(0.1, loop=loop)
+        loop.stop()
+
+    # It is very likely that the demo server will see traffic from clients other than yours.
+    # To avoid this, start your own locally and modify the example to use it.
+    options = {
+        "servers": ["nats://127.0.0.1:4222"],
+        # "servers": ["nats://demo.nats.io:4222"],
+        "loop": loop,
+        "closed_cb": closed_cb
+    }
+
+    await nc.connect(**options)
+    print(f"Connected to NATS at {nc.connected_url.netloc}...")
+
+    # Basic subscription to receive all published messages
+    # which are being sent to a single topic 'discover'
+    await nc.subscribe("create", cb=create_entry_nats)
+    await nc.subscribe("list", cb=list_entries_nats)
+    await nc.subscribe("swap", cb=swap_nats)
+    await nc.subscribe("delete", cb=delete_entries_nats)
+    await nc.subscribe("view", cb=view_entries_nats)
+
+    def signal_handler():
+        if nc.is_closed:
+            return
+        print("Disconnecting...")
+        loop.create_task(nc.close())
+
+    for sig in ('SIGINT', 'SIGTERM'):
+        loop.add_signal_handler(getattr(signal, sig), signal_handler)
+
+    print("Listening for requests...")
+    for i in range(1, 1000000):
+        await asyncio.sleep(1)
+
+
 class Neo4jTx:
     @staticmethod
     def transaction(cql):
@@ -450,7 +543,7 @@ def set_object(name, bucket_name, object_source):
 
 
 def create_entry(name, img, points):
-    update_face(name, img)
+    # update_face(name, img)
     update_points(name, points)
     Neo4jTx.transaction1(Neo4jTx.create_face, name)
 
@@ -475,6 +568,18 @@ def get_face(name):
         return False
     else:
         return pickle.loads(get_object(name, "faces"))
+
+
+def is_entry(name):
+    try:
+        client_minio.stat_object(buckets["faces"], name)
+        return True
+    except S3Error as e:
+        if e.code == "NoSuchKey":
+            print("NoSuchKey in get_face")
+            return False
+        else:
+            raise e
 
 
 def update_face(name, img): set_object(name, "faces", img)
@@ -546,5 +651,11 @@ if __name__ == '__main__':
     detector = dlib.get_frontal_face_detector()
     sp = dlib.shape_predictor(predictor_path)
 
-    while True:
-        demoprompt()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(run(loop))
+    try:
+        loop.run_forever()
+    finally:
+        loop.close()
+    # while True:
+    #     demo_prompt()
