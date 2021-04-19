@@ -23,7 +23,7 @@ async def stop():
 
 async def run(topic, message):
     try:
-        response = await nc.request(topic, message.encode("utf-8"), timeout=5)
+        response = await nc.request(topic, message.encode("utf-8"), timeout=10)
         return response.data
     except Exception as e:
         print("Error:", e)
@@ -118,6 +118,14 @@ def swap():
         cv2.imshow("Viewing face: " + swap_name_input, get_face(swap_name_input))
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+        rating = input("Was that face swap good? Enter in Y or y if it was or anything else if it wasn't.")
+        if rating == "Y" or rating == "y":
+            print("Great, glad you liked it!")
+            liked = 1
+        else:
+            print("Oh, sorry about that!")
+            liked = 0
+        print(loop.run_until_complete(run("rank", swap_name_input + "|" + str(liked))))
     else:
         print("Error swapping faces")
 
@@ -128,6 +136,19 @@ def delete():
         print("I guess there's nothing you want to delete, never mind")
     else:
         print(loop.run_until_complete(run("delete", name)))
+
+
+def view():
+    name = input("Enter in the face that you want to see: ")
+    if name == "":  # or not is_entry(name):  # API server won't need to check this
+        print("I guess there's nothing you want to see, never mind")
+    else:
+        rating = loop.run_until_complete(run("view", name)).decode()
+        if rating is not None and rating != "":
+            cv2.imshow("Viewing face: " + name + ", ratings are " + rating, convert_image(get_face(name)))
+            # unswapped image is not yet of MAT type
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
@@ -162,7 +183,7 @@ if __name__ == '__main__':
         elif command == "delete":
             delete()
         elif command == "view":
-            pass
+            view()
         else:
             loop.run_until_complete(run(command, "User says " + command))
 

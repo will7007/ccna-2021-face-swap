@@ -390,8 +390,8 @@ async def run(loop):
 
     async def list_entries_nats(msg):
         list = get_entry_list()
-        print("Printing list of faces: ", list)
         await nc.publish(msg.reply, b'' + str(list).encode("utf-8"))
+        print("Listing nodes")
 
     async def swap_nats(msg):
         name_combined = msg.data.decode()
@@ -403,6 +403,7 @@ async def run(loop):
                                     convert_image(get_face(base)), get_points(base))
             update_face(name_combined, output)
             await nc.publish(msg.reply, str(name_combined).encode("utf-8"))
+            print("Swapping", name_combined)
 
     async def delete_entries_nats(msg):
         name = msg.data.decode()
@@ -412,14 +413,25 @@ async def run(loop):
         else:
             delete_entry(name)
             await nc.publish(msg.reply, b'Deleted')
+            print("Deleted", name)
 
-    async def view_entries_nats(msg):
-        subject = msg.subject
-        reply = msg.reply
-        data = msg.data.decode()
-        print("Received a message on '{subject} {reply}': {data}".format(
-            subject=subject, reply=reply, data=data))
-        await nc.publish(reply, b'I can\'t view things because I need to be finished first')
+    async def view_nats(msg):
+        name = msg.data.decode()
+        if is_entry(name) is None:
+            await nc.publish(msg.reply, str("").encode("utf-8"))
+        else:
+            base_rating = get_rating_base(name)
+            donor_rating = get_rating_donor(name)
+            await nc.publish(msg.reply, str("base:" + str(base_rating) + " donor:" + str(donor_rating)).encode("utf-8"))
+            print("Viewing", name)
+
+    async def rank_entries_nats(msg):
+        name_combined = msg.data.decode()
+        donor, base, liked = name_combined.split("|")
+        if is_entry(donor) is None or is_entry(base) is None:
+            await nc.publish(msg.reply, str("error").encode("utf-8"))
+        else:
+            await nc.publish(msg.reply, str("rating is now" + str(update_rating(donor, base, liked == "1"))).encode("utf-8"))
 
     async def closed_cb():
         print("Connection to NATS is closed.")
@@ -444,7 +456,8 @@ async def run(loop):
     await nc.subscribe("list", cb=list_entries_nats)
     await nc.subscribe("swap", cb=swap_nats)
     await nc.subscribe("delete", cb=delete_entries_nats)
-    await nc.subscribe("view", cb=view_entries_nats)
+    await nc.subscribe("view", cb=view_nats)
+    await nc.subscribe("rank", cb=rank_entries_nats)
 
     def signal_handler():
         if nc.is_closed:
@@ -499,7 +512,7 @@ class Neo4jTx:
 
     @staticmethod
     def list_face(tx):
-        return tx.run("match (n:Face) return n").values()
+        return tx.run("match (n:Face) return n as Node").data()
 
     @staticmethod
     def rate_face(tx, donor_name, base_name, liked):
@@ -518,8 +531,12 @@ class Neo4jTx:
         return values[0]  # there should only be one rating returned
 
     @staticmethod
-    def get_rating(tx, name):
-        return tx.run("match (n)-[r:Swap]->() where n.name='" + name + "' return r.rating")
+    def get_rating_base(tx, name):
+        return tx.run("match (n)-[r:Swap]->() where n.name='" + name + "' return sum(r.rating)").values()
+
+    @staticmethod
+    def get_rating_donor(tx, name):
+        return tx.run("match ()-[r:Swap]->(n) where n.name='" + name + "' return sum(r.rating)").values()
 
 
 def get_object(name, bucket_name):
@@ -583,6 +600,12 @@ def is_entry(name):
 
 
 def update_face(name, img): set_object(name, "faces", img)
+
+
+def get_rating_base(name): return Neo4jTx.transaction1(Neo4jTx.get_rating_base, name)
+
+
+def get_rating_donor(name): return Neo4jTx.transaction1(Neo4jTx.get_rating_donor, name)
 
 
 # TODO: make the "rating" of a face the total sum of the weights of its outward edges
