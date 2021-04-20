@@ -441,7 +441,7 @@ async def run(loop):
     # It is very likely that the demo server will see traffic from clients other than yours.
     # To avoid this, start your own locally and modify the example to use it.
     options = {
-        "servers": ["nats://127.0.0.1:4222"],
+        "servers": ["nats://nats-server:4222"],
         # "servers": ["nats://demo.nats.io:4222"],
         "loop": loop,
         "closed_cb": closed_cb
@@ -651,13 +651,13 @@ if __name__ == '__main__':
 
     # TODO: should we keep the connection open for the duration of the program/microservice or open/shut it when needed?
     # Set up Neo4j for storing face names, rankings, and other metadata
-    connection_neo4j = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "password"))
+    connection_neo4j = GraphDatabase.driver("bolt://neo4j:7687", auth=("neo4j", "password"))  # can't use default password or neo4j will get upset, so make sure to reconfigure neo4j before starting
     # client_neo4j = connection_neo4j.session()
     # We can't create more than one user database with the community version of neo4j so we'll just use the default one
 
     # Set up MinIO for storing face images and point-position tuples
     client_minio = Minio(
-        "localhost:9000",
+        "minio:9000",
         access_key="AKIAIOSFODNN7EXAMPLE",
         secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         secure=False

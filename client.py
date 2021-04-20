@@ -125,6 +125,7 @@ def swap():
         else:
             print("Oh, sorry about that!")
             liked = 0
+        client_minio.remove_object(buckets["faces"], swap_name)
         print(loop.run_until_complete(run("rank", swap_name_input + "|" + str(liked))))
     else:
         print("Error swapping faces")
