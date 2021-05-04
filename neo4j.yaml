@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neo4j
+spec:
+  selector:
+    matchLabels:
+      run: load-balancer-example
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: load-balancer-example
+    spec:
+      containers:
+        - name: neo4j
+          image: neo4j:latest
+          imagePullPolicy: Always
+          ports:
+          - containerPort: 7687
+            hostPort: 7687

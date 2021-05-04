@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: faceswap
+spec:
+  selector:
+    matchLabels:
+      run: load-balancer-example
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: load-balancer-example
+    spec:
+      containers:
+        - name: webserver
+          image: localhost:32000/faceswap
+          imagePullPolicy: Always

@@ -32,6 +32,9 @@ import util
 import io
 import os
 
+NATS_ADDRESS = "nats://nats-server:4222"  # "127.0.0.1:4222" or "nats://nats-server:4222"
+MINIO_ADDRESS = "minio:9000"  # "minio:9000" or "localhost:9000"
+
 # Flask setup
 application = Flask(__name__)
 application.secret_key = util.random_hex_bytes(5)
@@ -67,7 +70,7 @@ class RatingForm(FlaskForm):
 
 # NATS async functions
 async def start(loop):
-    await nc.connect("127.0.0.1:4222", loop=loop)
+    await nc.connect(NATS_ADDRESS, loop=loop)
 
 
 async def stop():
@@ -236,7 +239,7 @@ def swap():
 
 @application.route("/rate", methods=("GET", "POST"))
 def rate():
-    rating = RatingForm()
+    rating_form = RatingForm()
     list_nodes = re.sub(pattern="[\[\{\':\]\}]", repl="",
                         string=loop.run_until_complete(run("list", "")).decode("utf-8").replace("Node", "")
                         .replace("name", ""))
@@ -246,11 +249,11 @@ def rate():
         donor = request.args["donor"]
         rating_arg = request.args["liked"]
         return str(loop.run_until_complete(run("rank", donor + "|" + base + "|" + rating_arg)))
-    elif rating.validate_on_submit():
-        print("Rating", 1 if rating.liked.data else 0)
-        base = rating.base.data
-        donor = rating.donor.data
-        rating_arg = str(1 if rating.liked.data else 0)
+    elif rating_form.validate_on_submit():
+        print("Rating", 1 if rating_form.liked.data else 0)
+        base = rating_form.base.data
+        donor = rating_form.donor.data
+        rating_arg = str(1 if rating_form.liked.data else 0)
         rating = str(loop.run_until_complete(run("rank", donor + "|" + base + "|" + rating_arg)))
         print(donor, base, "rating is", rating)
         return render_template_string("""
@@ -264,7 +267,7 @@ def rate():
                                 {{ wtf.quick_form(form) }}
                                 {{rank}}
                                 {% endblock %}
-                                    """, form=rating, list=list_nodes, rating=rating)
+                                    """, form=rating_form, list=list_nodes, rating=rating)
     else:
         return render_template_string("""
                         {% extends "main.html" %}
@@ -276,7 +279,7 @@ def rate():
                         {{ wtf.quick_form(form) }}
                         {{rank}}
                         {% endblock %}
-                            """, form=rating, list=list_nodes)
+                            """, form=rating_form, list=list_nodes)
 
 
 @application.route("/list", methods=('GET',))
@@ -399,7 +402,7 @@ if __name__ == '__main__':
     loop.run_until_complete(start(loop))
 
     client_minio = Minio(
-        "localhost:9000",
+        MINIO_ADDRESS,
         access_key="AKIAIOSFODNN7EXAMPLE",
         secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         secure=False
@@ -415,7 +418,7 @@ if __name__ == '__main__':
     # http://flask.pocoo.org/docs/0.12/errorhandling/#working-with-debuggers
     use_c9_debugger = False
     application.run(use_debugger=not use_c9_debugger, debug=True,
-                    use_reloader=not use_c9_debugger, host='0.0.0.0', port=8080)
+                    use_reloader=not use_c9_debugger, host='localhost', port=8080)
 
     loop.run_until_complete(stop())
     loop.close()
