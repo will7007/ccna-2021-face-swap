@@ -102,6 +102,7 @@ def create():
 
 def list_faces():
     print("Here is a list of faces currently in the database:")
+    # result = bytes(loop.run_until_complete(run("list", ""))).decode("utf-8")
     print(loop.run_until_complete(run("list", "")))
 
 
@@ -171,7 +172,7 @@ if __name__ == '__main__':
         else:
             print("Bucket '{}' already exists".format(bucket))
 
-    while True:
+    while True:  # replace with Flask
         command = input("What command would you like to run? [create, list, swap, delete, view, stop]: ")
         if command == "stop":
             break
