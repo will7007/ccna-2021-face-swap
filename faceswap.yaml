@@ -5,12 +5,12 @@ metadata:
 spec:
   selector:
     matchLabels:
-      run: load-balancer-example
+      app: faceswap
   replicas: 1
   template:
     metadata:
       labels:
-        run: load-balancer-example
+        app: faceswap
     spec:
       containers:
         - name: webserver

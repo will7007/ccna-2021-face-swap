@@ -5,17 +5,23 @@ metadata:
 spec:
   selector:
     matchLabels:
-      run: load-balancer-example
+      app: apiserver
   replicas: 1
   template:
     metadata:
       labels:
-        run: load-balancer-example
+        # Label is used as selector in the service.
+        app: apiserver
     spec:
       containers:
-        - name: webserver
-          image: localhost:32000/apiserver
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 8080
-              hostPort: 8080
+      - name: webserver
+        image: localhost:32000/apiserver
+        imagePullPolicy: Always
+        env:
+        - name: FLASK_APP
+          value: "app.py"
+        ports:
+        - containerPort: 8080
+          hostPort: 8080
+        - containerPort: 5000
+          hostPort: 5000

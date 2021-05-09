@@ -16,8 +16,20 @@ from minio.error import S3Error
 from neo4j import GraphDatabase
 from nats.aio.client import Client as NATS
 import asyncio
+import werkzeug
 
-
+# k8s addresses
+NEO4J_ADDRESS = "bolt://neo4j-service:7687"
+MINIO_ADDRESS = "minio-service:9000"
+NATS_ADDRESS = "nats://nats-service:4222"
+# normal addresses
+# NEO4J_ADDRESS = "bolt://localhost:7687"
+# MINIO_ADDRESS = "localhost:9000"
+# NATS_ADDRESS = "nats://127.0.0.1:4222"
+# normal app, k8s dbs
+# NEO4J_ADDRESS = "bolt://192.168.1.79:31620"
+# MINIO_ADDRESS = "192.168.1.79:31199"
+# NATS_ADDRESS = "nats://192.168.1.79:31348"
 # Apply affine transform calculated using srcTri and dstTri to src and
 # output an image of size.
 def applyAffineTransform(src, srcTri, dstTri, size):
@@ -377,6 +389,7 @@ async def run(loop):
     # Note: these callbacks must be inside an async or they will not reply properly
     async def create_entry_nats(msg):
         name = msg.data.decode()
+        print("Creating face", name)
         img = get_face(name)  # lena.jpg takes 768.16 KB as a cv2 image vs 28.67 KB as a file to store
         points = precalculate_face(convert_image(img))
         if not points:
@@ -441,7 +454,7 @@ async def run(loop):
     # It is very likely that the demo server will see traffic from clients other than yours.
     # To avoid this, start your own locally and modify the example to use it.
     options = {
-        "servers": ["nats://nats-server:4222"],
+        "servers": [NATS_ADDRESS],
         # "servers": ["nats://demo.nats.io:4222"],
         "loop": loop,
         "closed_cb": closed_cb
@@ -531,11 +544,11 @@ class Neo4jTx:
         return values[0]  # there should only be one rating returned
 
     @staticmethod
-    def get_rating_base(tx, name):
+    def get_rating_donor(tx, name):
         return tx.run("match (n)-[r:Swap]->() where n.name='" + name + "' return sum(r.rating)").values()
 
     @staticmethod
-    def get_rating_donor(tx, name):
+    def get_rating_base(tx, name):
         return tx.run("match ()-[r:Swap]->(n) where n.name='" + name + "' return sum(r.rating)").values()
 
 
@@ -584,7 +597,7 @@ def get_face(name):
     if type(data) == bool and not data:  # TODO: use the graph store instead of the object store to test if present
         return False
     else:
-        return pickle.loads(get_object(name, "faces"))
+        return pickle.loads(data)
 
 
 def is_entry(name):
@@ -651,13 +664,13 @@ if __name__ == '__main__':
 
     # TODO: should we keep the connection open for the duration of the program/microservice or open/shut it when needed?
     # Set up Neo4j for storing face names, rankings, and other metadata
-    connection_neo4j = GraphDatabase.driver("bolt://neo4j:7687", auth=("neo4j", "password"))  # can't use default password or neo4j will get upset, so make sure to reconfigure neo4j before starting
+    connection_neo4j = GraphDatabase.driver(NEO4J_ADDRESS, auth=("neo4j", "password"))  # can't use default password or neo4j will get upset, so make sure to reconfigure neo4j before starting
     # client_neo4j = connection_neo4j.session()
     # We can't create more than one user database with the community version of neo4j so we'll just use the default one
 
     # Set up MinIO for storing face images and point-position tuples
     client_minio = Minio(
-        "minio:9000",
+        MINIO_ADDRESS,
         access_key="AKIAIOSFODNN7EXAMPLE",
         secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         secure=False

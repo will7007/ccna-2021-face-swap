@@ -5,12 +5,12 @@ metadata:
 spec:
   selector:
     matchLabels:
-      run: load-balancer-example
+      app: neo4j
   replicas: 1
   template:
     metadata:
       labels:
-        run: load-balancer-example
+        app: neo4j
     spec:
       containers:
         - name: neo4j
@@ -19,3 +19,5 @@ spec:
           ports:
           - containerPort: 7687
             hostPort: 7687
+          - containerPort: 7474
+            hostPort: 7474

@@ -32,8 +32,16 @@ import util
 import io
 import os
 
-NATS_ADDRESS = "nats://nats-server:4222"  # "127.0.0.1:4222" or "nats://nats-server:4222"
-MINIO_ADDRESS = "minio:9000"  # "minio:9000" or "localhost:9000"
+# k8s addresses
+NATS_ADDRESS = "nats-service:4222"  # "127.0.0.1:4222" or "nats-service:4222"
+MINIO_ADDRESS = "minio-service:9000"  # "minio-service:9000" or "localhost:9000"
+# local addresses
+# NATS_ADDRESS = "127.0.0.1:4222"
+# MINIO_ADDRESS = "localhost:9000"
+
+# NEO4J_ADDRESS = "bolt://192.168.1.71:31620"
+# MINIO_ADDRESS = "192.168.1.71:31199"
+# NATS_ADDRESS = "nats://192.168.1.71:31348"
 
 # Flask setup
 application = Flask(__name__)
@@ -70,7 +78,7 @@ class RatingForm(FlaskForm):
 
 # NATS async functions
 async def start(loop):
-    await nc.connect(NATS_ADDRESS, loop=loop)
+    await nc.connect(servers=NATS_ADDRESS, max_reconnect_attempts=50, loop=loop)
 
 
 async def stop():
@@ -143,7 +151,10 @@ def create():
     if form.validate_on_submit():
         filename = secure_filename(form.photo.data.filename)
         name = filename[:filename.find(".")]  # removes .jpg or whatever is the extension
+        # form.data['photo'].seek(0)
+        # data = form.data['photo'].read()  # needed to remove the extra wrapper garbage when inside Kubernetes
         image_bytes = util.resize_image(form.photo.data, (300, 300))
+        # image_bytes = util.resize_image(data, (300, 300))
         if image_bytes:
             set_object(name, "faces", image_bytes)
             message = loop.run_until_complete(run("create", name)).decode("utf-8")
@@ -396,29 +407,29 @@ def add_header(response):
     return response
 
 
-if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    nc = NATS()
-    loop.run_until_complete(start(loop))
+#if __name__ == '__main__':
+loop = asyncio.get_event_loop()
+nc = NATS()
+loop.run_until_complete(start(loop))
 
-    client_minio = Minio(
-        MINIO_ADDRESS,
-        access_key="AKIAIOSFODNN7EXAMPLE",
-        secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        secure=False
-    )
-    buckets = {"faces": "face-images", "points": "facial-points"}
-    for bucket in buckets.values():
-        found = client_minio.bucket_exists(bucket)
-        if not found:
-            client_minio.make_bucket(bucket)
-        else:
-            print("Bucket '{}' already exists".format(bucket))
+client_minio = Minio(
+    MINIO_ADDRESS,
+    access_key="AKIAIOSFODNN7EXAMPLE",
+    secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    secure=False
+)
+buckets = {"faces": "face-images", "points": "facial-points"}
+for bucket in buckets.values():
+    found = client_minio.bucket_exists(bucket)
+    if not found:
+        client_minio.make_bucket(bucket)
+    else:
+        print("Bucket '{}' already exists".format(bucket))
 
-    # http://flask.pocoo.org/docs/0.12/errorhandling/#working-with-debuggers
-    use_c9_debugger = False
-    application.run(use_debugger=not use_c9_debugger, debug=True,
-                    use_reloader=not use_c9_debugger, host='localhost', port=8080)
+# http://flask.pocoo.org/docs/0.12/errorhandling/#working-with-debuggers
+use_c9_debugger = False
+application.run(use_debugger=not use_c9_debugger, debug=True,
+                use_reloader=not use_c9_debugger, host='0.0.0.0', port=8080)
 
-    loop.run_until_complete(stop())
-    loop.close()
+loop.run_until_complete(stop())
+loop.close()
